@@ -29,49 +29,31 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ProcStat():
-    """Dataclass container for /proc/stats file values"""
+    """Dataclass container for /proc/stat file values"""
     stats: dict[str, list[int]]
-    _raw_stats: list[str]
-
-    def __init__(self, raw_stats: list[str] = None):
-        """Initialize the raw_stats and compute totals from it
-
-        Args:
-            raw_stats (list[str], optional): stats to use, will get current stats if not passed.
-                Defaults to None.
-        """
-        if raw_stats:
-            self._raw_stats = raw_stats
-        else:
-            self._raw_stats = ProcStat.current_stats()
-        self._process_stats()
-
-    def _process_stats(self):
-        """Populate self.stats dictionary from raw line values"""
-        for line in self._raw_stats:
-            fields = line.split()
-            stat_type = fields[0]
-            stat_values = fields[1::]
-            self.stats[stat_type] = stat_values
 
     @staticmethod
-    def current_stats() -> list[str]:
-        """Static method to get current /proc/stats values as list of strings
+    def current_stats() -> dict[str, list[int]]:
+        """Static method to get current /proc/stat values as dict of stat type to list of int values
 
         Raises:
             NotImplementedError: not yet implemented
 
         Returns:
-            list[str]: list of the lines (as strings) read from current state of /proc/stats
+            dict[str, list[int]]: dict of stat type (e.g cpu, cpu0, intr) to list of int values
         """
-        raw_stats = []
-        with open("/proc/stats", "r", encoding="UTF-8") as file:
+        stats = dict()
+        with open("/proc/stat", "r", encoding="UTF-8") as file:
             for line in file:
-                raw_stats.append(line)
+                fields = line.split()
+                stat_type = fields[0]
+                stat_values = fields[1::]
+                stats[stat_type] = stat_values
+        return stats
 
-    @staticmethod
-    def current() -> ProcStat:
-        """Static method to return a ProcStat instance of the current /proc/stats state
+    @classmethod
+    def current(cls) -> "ProcStat":
+        """Class method to return a ProcStat instance of the current /proc/stats state
 
         Raises:
             NotImplementedError: not yet implemented
@@ -79,7 +61,8 @@ class ProcStat():
         Returns:
             ProcStat: instance of ProcStat with the current /proc/stats state
         """
-        return ProcStat(ProcStat.current_stats())
+        stats = ProcStat.current_stats()
+        return cls(stats)
 
 
 def main():
