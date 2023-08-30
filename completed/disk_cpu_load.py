@@ -27,10 +27,10 @@ Parameters:
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class ProcStat():
     """Dataclass container for /proc/stats file values"""
-    stats: dict[list[int]]
+    stats: dict[str, list[int]]
     _raw_stats: list[str]
 
     def __init__(self, raw_stats: list[str] = None):
@@ -47,7 +47,12 @@ class ProcStat():
         self._process_stats()
 
     def _process_stats(self):
-        raise NotImplementedError
+        """Populate self.stats dictionary from raw line values"""
+        for line in self._raw_stats:
+            fields = line.split()
+            stat_type = fields[0]
+            stat_values = fields[1::]
+            self.stats[stat_type] = stat_values
 
     @staticmethod
     def current_stats() -> list[str]:
@@ -59,7 +64,10 @@ class ProcStat():
         Returns:
             list[str]: list of the lines (as strings) read from current state of /proc/stats
         """
-        raise NotImplementedError
+        raw_stats = []
+        with open("/proc/stats", "r", encoding="UTF-8") as file:
+            for line in file:
+                raw_stats.append(line)
 
     @staticmethod
     def current() -> ProcStat:
@@ -71,7 +79,7 @@ class ProcStat():
         Returns:
             ProcStat: instance of ProcStat with the current /proc/stats state
         """
-        raise NotImplementedError
+        return ProcStat(ProcStat.current_stats())
 
 
 def main():
