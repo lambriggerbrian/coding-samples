@@ -25,38 +25,71 @@ Parameters:
                       filesystem. Defaults to /dev/sda.
 """
 from dataclasses import dataclass
+import logging
+import getpass
 
 
 @dataclass(frozen=True)
 class ProcStat():
-    """Dataclass container for /proc/stat file values"""
+    """Dataclass container for /proc/stat file values
+    NOTE: Class is frozen to be relatively immutable, but assignments to stats member is possible
+    """
+
     stats: dict[str, list[int]]
+
+    def get_total(self, stat_type: str) -> int:
+        """Return the sum total of the array values for a given stat_type in self.stats
+
+        Args:
+            stat_type (str): name of stat in the self.stats dict
+
+        Raises:
+            KeyError if stat_type not in self.stats
+
+        Returns:
+            int: total sum of values for the given stat_type
+        """
+        try:
+            values = self.stats[stat_type]
+            logging.getLogger().debug("Summing values for '%s': %s", stat_type, values)
+            return sum(values)
+        except KeyError as error:
+            logging.getLogger().error("The stats dict has no key '%s'", stat_type)
+            raise error
 
     @staticmethod
     def current_stats() -> dict[str, list[int]]:
         """Static method to get current /proc/stat values as dict of stat type to list of int values
 
         Raises:
-            NotImplementedError: not yet implemented
+            FileNotFoundError if /proc/stat file does not exist
+            PermissionError if executing user does not have permission to read /proc/stat
 
         Returns:
             dict[str, list[int]]: dict of stat type (e.g cpu, cpu0, intr) to list of int values
         """
         stats = dict()
-        with open("/proc/stat", "r", encoding="UTF-8") as file:
-            for line in file:
-                fields = line.split()
-                stat_type = fields[0]
-                stat_values = fields[1::]
-                stats[stat_type] = stat_values
-        return stats
+        print(getpass.getuser())
+        try:
+            with open("/proc/stat", "r", encoding="UTF-8") as file:
+                for line in file:
+                    fields = line.split()
+                    stat_type = fields[0]
+                    stat_values = fields[1::]
+                    stats[stat_type] = [int(stat) for stat in stat_values]
+            return stats
+        except FileNotFoundError as error:
+            logging.getLogger().error("File /proc/stat not found, are you sure you're on Linux?")
+            raise error
+        except PermissionError as error:
+            logging.getLogger().error(
+                "Permission denied on file /proc/stat, check permissions for user '%s'.",
+                getpass.getuser())
+            raise error
 
     @classmethod
     def current(cls) -> "ProcStat":
         """Class method to return a ProcStat instance of the current /proc/stats state
-
-        Raises:
-            NotImplementedError: not yet implemented
 
         Returns:
             ProcStat: instance of ProcStat with the current /proc/stats state
@@ -67,6 +100,14 @@ class ProcStat():
 
 def main():
     """Writes to disk and records CPU load using ProcStat to get /proc/stats states"""
+    # Get parameters
+
+    # Flush block device
+
+    # Start disk read
+
+    # Stop and calculate /proc/stat differences
+
     raise NotImplementedError
 
 
