@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Script to test CPU load imposed by a simple disk read operation
 
 Adapted from disk_cpu_load.sh by Rod Smith <rod.smith@canonical.com>
@@ -27,6 +27,9 @@ Parameters:
 from dataclasses import dataclass
 import logging
 import getpass
+import os
+import stat
+from argparse import ArgumentParser, Namespace
 
 
 @dataclass(frozen=True)
@@ -44,17 +47,17 @@ class ProcStat():
             stat_type (str): name of stat in the self.stats dict
 
         Raises:
-            KeyError if stat_type not in self.stats
+            KeyError: if stat_type not in self.stats
 
         Returns:
             int: total sum of values for the given stat_type
         """
         try:
             values = self.stats[stat_type]
-            logging.getLogger().debug("Summing values for '%s': %s", stat_type, values)
+            logging.debug("Summing values for '%s': %s", stat_type, values)
             return sum(values)
         except KeyError as error:
-            logging.getLogger().error("The stats dict has no key '%s'", stat_type)
+            logging.error("The stats dict has no key '%s'", stat_type)
             raise error
 
     @staticmethod
@@ -62,8 +65,8 @@ class ProcStat():
         """Static method to get current /proc/stat values as dict of stat type to list of int values
 
         Raises:
-            FileNotFoundError if /proc/stat file does not exist
-            PermissionError if executing user does not have permission to read /proc/stat
+            FileNotFoundError: if /proc/stat file does not exist
+            PermissionError: if executing user does not have permission to read /proc/stat
 
         Returns:
             dict[str, list[int]]: dict of stat type (e.g cpu, cpu0, intr) to list of int values
@@ -79,11 +82,12 @@ class ProcStat():
                     stats[stat_type] = [int(stat) for stat in stat_values]
             return stats
         except FileNotFoundError as error:
-            logging.getLogger().error("File /proc/stat not found, are you sure you're on Linux?")
+            logging.error(
+                "File '/proc/stat' not found, are you sure you're on Linux?")
             raise error
         except PermissionError as error:
-            logging.getLogger().error(
-                "Permission denied on file /proc/stat, check permissions for user '%s'.",
+            logging.error(
+                "Permission denied on file '/proc/stat', check permissions for user '%s'.",
                 getpass.getuser())
             raise error
 
@@ -98,9 +102,61 @@ class ProcStat():
         return cls(stats)
 
 
+def get_args() -> Namespace:
+    """Configure and parse command line arguments, checking for valid inputs
+
+    Raises:
+        ArgumentTypeError: if any inputs are invalid
+
+    Returns:
+        Namespace: argparse.Namespace is simple wrapper object of parsed argument values
+    """
+    parser = ArgumentParser()
+    parser.add_argument("-m", "--max-load", type=int,
+                        default=30, help="Max acceptable CPU load as percent, default is 30")
+    parser.add_argument("-x", "--xfer", type=int, default=4096,
+                        help="Amount of data to read from disk in mebibytes, default is 4096")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="If present, produce more verbose output")
+    parser.add_argument("device_filename", type=str,
+                        help='This is the WHOLE-DISK device filename (with or without "/dev/")')
+    args = parser.parse_args()
+    # Set verbosity
+    log_level = "DEBUG" if args.verbose else "WARNING"
+    logging.basicConfig(level=log_level)
+    logging.debug("--verbose is set to: %s", args.verbose)
+    # Check max_load is greater than 0
+    logging.debug("--max-load is set to: %s%%", args.max_load)
+    if args.max_load < 0:
+        logging.error("--max-load must be an integer greater than 0")
+        exit(1)
+    # Check xfer size is greater than 0
+    logging.debug("--xfer size is set to: %sMiB", args.xfer)
+    if args.xfer < 0:
+        logging.error("--xfer must be an integer greater than 0")
+        exit(1)
+    # Warn if the device filename is not a block device
+    logging.debug("device_filename is set to: %s", args.device_filename)
+    try:
+        file_mode = os.stat(args.device_filename).st_mode
+        if not stat.S_ISBLK(file_mode):
+            logging.warning("Device filename '%s' is not a block device.")
+    except FileNotFoundError:
+        logging.error(
+            "File '%s' not found.", args.device_filename)
+        exit(1)
+    except PermissionError:
+        logging.error(
+            "Permission denied on file '%s', check permissions for user '%s'.",
+            args.device_filename, getpass.getuser())
+        exit(1)
+    return args
+
+
 def main():
     """Writes to disk and records CPU load using ProcStat to get /proc/stats states"""
     # Get parameters
+    args = get_args()
 
     # Flush block device
 
