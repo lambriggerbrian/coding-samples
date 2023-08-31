@@ -7,32 +7,35 @@ Authors:
     Brian Lambrigger <lambrigger.brian@gmail.com>
 
 The purpose of this script is to run disk stress tests by recording /proc/stats
-values before and after disk a disk read.
+values before and after a disk read.
 
 Usage:
-  disk_cpu_load.py [ --max-load <load> ] [ --xfer <mebibytes> ]
-                   [ --verbose ] [ <device-filename> ]
+  disk_cpu_load.py [ -m/--max-load <load> ] [ -b/--block-size <bytes> ]
+                   [ -x/--xfer <count> ] [ --verbose ] [ <device-filename> ]
 
 Parameters:
- --max-load <load> -- The maximum acceptable CPU load, as a percentage.
-                      Defaults to 30.
- --xfer <mebibytes> -- The amount of data to read from the disk, in
-                       mebibytes. Defaults to 4096 (4 GiB).
- --verbose -- If present, produce more verbose output
- <device-filename> -- This is the WHOLE-DISK device filename (with or
-                      without "/dev/"), e.g. "sda" or "/dev/sda". The
-                      script finds a filesystem on that device, mounts
-                      it if necessary, and runs the tests on that mounted
-                      filesystem. Defaults to /dev/sda.
+ -m/--max-load <load>     -- The maximum acceptable CPU load, as a percentage.
+                             Defaults to 30.
+ -b/--block-size <bytes>  -- Amount of data to read at a time in bytes.
+                             Defaults to 1048576 (1 MiB)
+ -x/--xfer                -- The number of blocks to read from the disk.
+                             Total size read will be block-size * xfer.
+                             Defaults to 4096 (4 GiB).
+ --verbose                -- If present, produce more verbose output
+ <device-filename>        -- This is the WHOLE-DISK device filename (with or
+                             without "/dev/"), e.g. "sda" or "/dev/sda". The
+                             script finds a filesystem on that device, mounts
+                             it if necessary, and runs the tests on that mounted filesystem. 
+                             Defaults to /dev/sda.
 """
-from dataclasses import dataclass
-import logging
 import getpass
+import logging
 import os
 import re
 import stat
 import subprocess
 from argparse import ArgumentParser, Namespace
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -60,7 +63,7 @@ class ProcStat():
             logging.debug("Summing values for '%s': %s", stat_type, values)
             return sum(values)
         except KeyError as error:
-            logging.error("The stats dict has no key '%s'", stat_type)
+            logging.error("The stats dict has no key: '%s'", stat_type)
             raise error
 
     @staticmethod
@@ -121,7 +124,7 @@ def get_args() -> Namespace:
     parser.add_argument("-b", "--block-size", type=int, default=1048576,
                         help="Amount of data to read at a time in bytes, default is 1048576")
     parser.add_argument("-x", "--xfer", type=int, default=4096,
-                        help="Amount of data to read from disk in mebibytes, default is 4096")
+                        help="Number of blocks to read from disk, default is 4096")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="If present, produce more verbose output")
     parser.add_argument("device_filename", type=str,
@@ -142,13 +145,14 @@ def get_args() -> Namespace:
     # Check block size is greater than 0
     logging.debug("--block-size is set to: %sB", args.block_size)
     if args.block_size < 0:
-        logging.error("--block-size must be an integer greater than 0")
+        logging.error(
+            "--block-size must be an integer greater than 0.")
         exit(1)
 
     # Check xfer size is greater than 0
-    logging.debug("--xfer size is set to: %sMiB", args.xfer)
+    logging.debug("--xfer size is set to: %s", args.xfer)
     if args.xfer < 0:
-        logging.error("--xfer must be an integer greater than 0")
+        logging.error("--xfer must be an integer greater than 0.")
         exit(1)
 
     # Sanitize device filename for missing /dev/ prefix
@@ -169,8 +173,8 @@ def get_args() -> Namespace:
         exit(1)
     except PermissionError:
         logging.error(
-            "Permission denied on file '%s', check permissions for user '%s'.",
-            args.device_filename, getpass.getuser())
+            "Permission denied on file '%s', check permissions for user '%s' on device '%s'.",
+            args.device_filename, getpass.getuser(), args.device_filename)
         exit(1)
     return args
 
@@ -185,8 +189,13 @@ def main():
     xfer_size = args.xfer
 
     # Flush block device
-    logging.debug("Flushing buffers for device '%s'", disk_device)
-    subprocess.run(["blockdev", "--flushbufs", disk_device], check=True)
+    logging.debug("Flushing buffers for device '%s'.", disk_device)
+    try:
+        subprocess.run(["blockdev", "--flushbufs", disk_device], check=True)
+    except subprocess.CalledProcessError:
+        logging.error("Could not flush buffers on device '%s', you may need to execute as root.",
+                      disk_device)
+        exit(1)
 
     # Record initial /proc/stat values
     init_stats = ProcStat.current()
@@ -194,8 +203,9 @@ def main():
     # Start disk read
     logging.debug("Beginning read of '%s' (size %sMiB)",
                   disk_device, xfer_size)
-    subprocess.run(["dd", f"if={disk_device}", "of=/dev/null",
-                   f"bs={block_size}", f"count={xfer_size}"], check=True)
+    subprocess.run(["dd", f"if={disk_device}", "of=/dev/null", f"bs={block_size}",
+                   f"count={xfer_size}"], check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     logging.debug("Read complete!")
 
     # Stop and calculate /proc/stat differences
