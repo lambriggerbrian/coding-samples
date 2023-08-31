@@ -10,8 +10,7 @@ The purpose of this script is to run disk stress tests by recording /proc/stats
 values before and after a disk read.
 
 Usage:
-  disk_cpu_load.py [ -m/--max-load <load> ] [ -b/--block-size <bytes> ]
-                   [ -x/--xfer <count> ] [ --verbose ] [ <device-filename> ]
+  disk_cpu_load.py [-h] [-m MAX_LOAD] [-b BLOCK_SIZE] [-x XFER] [-v] device_filename
 
 Parameters:
  -m/--max-load <load>     -- The maximum acceptable CPU load, as a percentage.
