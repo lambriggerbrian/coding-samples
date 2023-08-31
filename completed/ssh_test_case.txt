@@ -1,0 +1,33 @@
+Title: Test SSH Connectivity with Password and Key-based Auth
+
+Description: Determine whether a user on a SOURCE host can connect to a TARGET host running an SSH server.
+
+Preconditions:
+    1. SOURCE host has an SSH client installed (can verify with `which ssh` on the command line).
+    2. TARGET host is running an SSH server (can verify with `systemctl status sshd.service` on the command line).
+    3. SOURCE host has a route to TARGET host (can verify SOURCE host has route configured with `ip route get TARGET_IP`).
+    4. SOURCE host has an SSH key pair, and the TARGET host has added the public key to /home/TARGET_USER/.ssh/authorized_keys.
+
+Assumptions:
+    1. TARGET host SSH server is listening on default port 22. If not, append `-p TARGET_PORT` to ssh commands below.
+    2. SOURCE host does not have an SSH config file that may have options already set for TARGET host
+    3. TARGET host sshd configuration does not prevent PasswordAuthentication.
+
+Testing Steps
+    Password Authentication
+    1. On the command line run the following command:
+        `ssh -o PasswordAuthentication=yes TARGET_USER@TARGET_IP`
+    2. The user may be asked if they want to connect to the TARGET host, respond `yes`.
+    3. User will be prompted to enter the password of the TARGET_USER with a prompt like:
+        `TARGET_USER@TARGET_IP's password:`
+        User input will not be shown for security.
+    4. Press "Enter" key when password is entered.
+
+    SSH Key Authentication
+    1. On the command line as a user with proper permissions to read the shared SSH key, run the following command:
+        `ssh -i /PATH/TO/KEY_FILE TARGET_USER@TARGET_IP`
+    2. The user may be asked if they want to connect to the TARGET host, respond `yes`.
+    3. User will NOT be prompted to enter a password, upon successful verification the terminal will immediately reflect the default shell of TARGET_USER.
+
+Expected Results
+    The user will be greeted with the TARGET_USER's default shell.
