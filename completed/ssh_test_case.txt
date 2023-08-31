@@ -27,7 +27,15 @@ Testing Steps
     1. On the command line as a user with proper permissions to read the shared SSH key, run the following command:
         `ssh -i /PATH/TO/KEY_FILE TARGET_USER@TARGET_IP`
     2. The user may be asked if they want to connect to the TARGET host, respond `yes`.
-    3. User will NOT be prompted to enter a password, upon successful verification the terminal will immediately reflect the default shell of TARGET_USER.
+    3. User will NOT be prompted to enter a password.
 
 Expected Results
-    The user will be greeted with the TARGET_USER's default shell.
+    In either case, upon successful SSH connection the user will be greeted with the TARGET_USER's default shell.
+
+Failure Cases
+    1. If the password is incorrect, user will receive the response:
+        `Permission denied, please try again.`
+        Verify the credentials used are correct.
+    2. If the key is incorrect or not added to the TARGET_USER's authorized_keys file, the server will respond:
+        `TARGET_USER@TARGET_IP: Permission denied (publickey)
+        Verify the key used is correct and added to the authorized_keys file of the target user.
