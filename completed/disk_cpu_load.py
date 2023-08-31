@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import logging
 import getpass
 import os
+import re
 import stat
 import subprocess
 from argparse import ArgumentParser, Namespace
@@ -117,6 +118,8 @@ def get_args() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument("-m", "--max-load", type=int,
                         default=30, help="Max acceptable CPU load as percent, default is 30")
+    parser.add_argument("-b", "--block-size", type=int, default=1048576,
+                        help="Amount of data to read at a time in bytes, default is 1048576")
     parser.add_argument("-x", "--xfer", type=int, default=4096,
                         help="Amount of data to read from disk in mebibytes, default is 4096")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -136,18 +139,30 @@ def get_args() -> Namespace:
         logging.error("--max-load must be an integer greater than 0")
         exit(1)
 
+    # Check block size is greater than 0
+    logging.debug("--block-size is set to: %sB", args.block_size)
+    if args.block_size < 0:
+        logging.error("--block-size must be an integer greater than 0")
+        exit(1)
+
     # Check xfer size is greater than 0
     logging.debug("--xfer size is set to: %sMiB", args.xfer)
     if args.xfer < 0:
         logging.error("--xfer must be an integer greater than 0")
         exit(1)
 
-    # Warn if the device filename is not a block device
+    # Sanitize device filename for missing /dev/ prefix
+    initial_device = args.device_filename
+    if not re.search("^/dev/", initial_device):
+        args.device_filename = f"/dev/{initial_device}"
+
+    # Check if the device filename is not a block device
     logging.debug("device_filename is set to: %s", args.device_filename)
     try:
         file_mode = os.stat(args.device_filename).st_mode
         if not stat.S_ISBLK(file_mode):
-            logging.warning("Device filename '%s' is not a block device.")
+            logging.error("Device filename '%s' is not a block device.")
+            exit(1)
     except FileNotFoundError:
         logging.error(
             "File '%s' not found.", args.device_filename)
@@ -166,32 +181,31 @@ def main():
     args = get_args()
     disk_device = args.device_filename
     max_load = args.max_load
+    block_size = args.block_size
     xfer_size = args.xfer
 
     # Flush block device
     logging.debug("Flushing buffers for device '%s'", disk_device)
-    subprocess.run(["blockdev", "--flushbufs", "$disk_device"], check=True)
+    subprocess.run(["blockdev", "--flushbufs", disk_device], check=True)
 
     # Record initial /proc/stat values
     init_stats = ProcStat.current()
-    logging.debug("Initial /proc/stats/ values are: %s", init_stats)
 
     # Start disk read
     logging.debug("Beginning read of '%s' (size %sMiB)",
                   disk_device, xfer_size)
-    subprocess.run(["dd", f'if="{disk_device}"', "of=/dev/null",
-                   "bs=1048576", f'count="{xfer_size}"'], check=True)
+    subprocess.run(["dd", f"if={disk_device}", "of=/dev/null",
+                   f"bs={block_size}", f"count={xfer_size}"], check=True)
     logging.debug("Read complete!")
 
     # Stop and calculate /proc/stat differences
     end_stats = ProcStat.current()
-    logging.debug("End /proc/stats values are: %s", end_stats)
 
     # Calculate totals and differences
     init_total = init_stats.get_total("cpu")
     logging.debug("Start CPU time = %s", init_total)
 
-    end_total = init_stats.get_total("cpu")
+    end_total = end_stats.get_total("cpu")
     logging.debug("End CPU time = %s", end_total)
 
     diff_idle = end_stats.stats["cpu"][3] - init_stats.stats["cpu"][3]
@@ -201,7 +215,9 @@ def main():
     logging.debug("Total elapsed time = %s", diff_total)
 
     # Calculate total load and Pass/Fail
-    cpu_load = (diff_used*100)/diff_total
+    cpu_load = 0
+    if diff_total != 0:
+        cpu_load = (diff_used*100)/diff_total
     print(f"Detected CPU load is {cpu_load}%")
     if cpu_load > max_load:
         print("*** DISK CPU LOAD TEST HAS FAILED! ***")
