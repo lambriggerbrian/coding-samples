@@ -6,8 +6,9 @@ Adapted from disk_cpu_load.sh by Rod Smith <rod.smith@canonical.com>
 Authors:
     Brian Lambrigger <lambrigger.brian@gmail.com>
 
-The purpose of this script is to run disk stress tests using the
-stress-ng program.
+The purpose of this script is to run disk stress tests by recording /proc/stats
+values before and after disk a disk read.
+
 Usage:
   disk_cpu_load.py [ --max-load <load> ] [ --xfer <mebibytes> ]
                    [ --verbose ] [ <device-filename> ]
@@ -29,6 +30,7 @@ import logging
 import getpass
 import os
 import stat
+import subprocess
 from argparse import ArgumentParser, Namespace
 
 
@@ -72,12 +74,13 @@ class ProcStat():
             dict[str, list[int]]: dict of stat type (e.g cpu, cpu0, intr) to list of int values
         """
         stats = dict()
-        print(getpass.getuser())
         try:
             with open("/proc/stat", "r", encoding="UTF-8") as file:
                 for line in file:
                     fields = line.split()
+                    # First element of the line is the type of values (e.g. cpu, intr)
                     stat_type = fields[0]
+                    # Remaining elements are the values of different fields
                     stat_values = fields[1::]
                     stats[stat_type] = [int(stat) for stat in stat_values]
             return stats
@@ -121,20 +124,24 @@ def get_args() -> Namespace:
     parser.add_argument("device_filename", type=str,
                         help='This is the WHOLE-DISK device filename (with or without "/dev/")')
     args = parser.parse_args()
+
     # Set verbosity
     log_level = "DEBUG" if args.verbose else "WARNING"
     logging.basicConfig(level=log_level)
     logging.debug("--verbose is set to: %s", args.verbose)
+
     # Check max_load is greater than 0
     logging.debug("--max-load is set to: %s%%", args.max_load)
     if args.max_load < 0:
         logging.error("--max-load must be an integer greater than 0")
         exit(1)
+
     # Check xfer size is greater than 0
     logging.debug("--xfer size is set to: %sMiB", args.xfer)
     if args.xfer < 0:
         logging.error("--xfer must be an integer greater than 0")
         exit(1)
+
     # Warn if the device filename is not a block device
     logging.debug("device_filename is set to: %s", args.device_filename)
     try:
@@ -157,14 +164,48 @@ def main():
     """Writes to disk and records CPU load using ProcStat to get /proc/stats states"""
     # Get parameters
     args = get_args()
+    disk_device = args.device_filename
+    max_load = args.max_load
+    xfer_size = args.xfer
 
     # Flush block device
+    logging.debug("Flushing buffers for device '%s'", disk_device)
+    subprocess.run(["blockdev", "--flushbufs", "$disk_device"], check=True)
+
+    # Record initial /proc/stat values
+    init_stats = ProcStat.current()
+    logging.debug("Initial /proc/stats/ values are: %s", init_stats)
 
     # Start disk read
+    logging.debug("Beginning read of '%s' (size %sMiB)",
+                  disk_device, xfer_size)
+    subprocess.run(["dd", f'if="{disk_device}"', "of=/dev/null",
+                   "bs=1048576", f'count="{xfer_size}"'], check=True)
+    logging.debug("Read complete!")
 
     # Stop and calculate /proc/stat differences
+    end_stats = ProcStat.current()
+    logging.debug("End /proc/stats values are: %s", end_stats)
 
-    raise NotImplementedError
+    # Calculate totals and differences
+    init_total = init_stats.get_total("cpu")
+    logging.debug("Start CPU time = %s", init_total)
+
+    end_total = init_stats.get_total("cpu")
+    logging.debug("End CPU time = %s", end_total)
+
+    diff_idle = end_stats.stats["cpu"][3] - init_stats.stats["cpu"][3]
+    diff_total = end_total - init_total
+    diff_used = diff_total - diff_idle
+    logging.debug("CPU time used: %s", diff_used)
+    logging.debug("Total elapsed time = %s", diff_total)
+
+    # Calculate total load and Pass/Fail
+    cpu_load = (diff_used*100)/diff_total
+    print(f"Detected CPU load is {cpu_load}%")
+    if cpu_load > max_load:
+        print("*** DISK CPU LOAD TEST HAS FAILED! ***")
+        exit(1)
 
 
 if __name__ == "__main__":
